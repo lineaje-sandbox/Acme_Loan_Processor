@@ -17,8 +17,34 @@ from typing import Any, Optional
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
+from unifai_guard import sanitize_prompt, find_prompt_attacks, redact_pii, mask_pii, sanitize_messages, find_code_execution, remove_suspicious_content, remove_hidden_prompts, remove_encoded_prompts, remove_leetspeak_prompts, find_command_requests
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_untrusted_text_for_model(text: str) -> str:
+    text = redact_pii(text, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation', 'aws_access_key_id', 'aws_secret_access_key', 'gcp_service_account_key', 'azure_client_secret', 'private_key', 'password', 'api_key', 'oauth_token'))
+    text = remove_hidden_prompts(text)
+    text = remove_encoded_prompts(text)
+    text = remove_leetspeak_prompts(text)
+    text = sanitize_prompt(text)
+    return text
+
+
+def _sanitize_context_text_for_model(text: str) -> str:
+    text = redact_pii(text, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation'))
+    text = remove_suspicious_content(text)
+    text = sanitize_prompt(text)
+    text = remove_hidden_prompts(text)
+    text = remove_encoded_prompts(text)
+    text = remove_leetspeak_prompts(text)
+    return text
+
+
+def _validate_llm_output(text: str) -> str:
+    if find_code_execution(text):
+        return "Error: Unsafe LLM response blocked"
+    return text
 
 
 class BedrockClient:
@@ -96,6 +122,8 @@ class BedrockClient:
         if not active_region:
             return "LLM service not configured. Please set AWS_REGION or AWS_DEFAULT_REGION."
 
+        if find_command_requests(messages):
+            return "Error: Command-execution requests are not allowed"
         bedrock_messages, system_prompts = self._format_messages(messages)
 
         logger.info(
@@ -108,7 +136,7 @@ class BedrockClient:
                     len(str(message.get("content", ""))) for message in messages
                 ),
                 # VULNERABILITY: Message content in logs
-                "messages_preview": str(messages)[:200],
+                "messages_preview": "[redacted]",
             },
         )
 
@@ -123,13 +151,14 @@ class BedrockClient:
             )
 
             content = self._extract_text(response)
+            content = _validate_llm_output(content)
 
             logger.info(
                 "Received response from Amazon Bedrock",
                 extra={
                     "response_length": len(content),
                     # VULNERABILITY: Full response in logs
-                    "response_preview": content[:200],
+                    "response_preview": "[redacted]",
                 },
             )
 
@@ -190,6 +219,7 @@ class BedrockClient:
                 system_prompts.append({"text": content})
                 continue
 
+            content = _sanitize_untrusted_text_for_model(content)
             bedrock_role = "assistant" if role == "assistant" else "user"
             bedrock_messages.append(
                 {
@@ -207,7 +237,8 @@ class BedrockClient:
             for block in content_blocks
             if isinstance(block, dict) and block.get("text")
         ]
-        return "\n".join(text_parts).strip()
+        text = "\n".join(text_parts).strip()
+        return _validate_llm_output(text)
 
     async def chat_with_context(
         self,
@@ -223,15 +254,18 @@ class BedrockClient:
         messages = [{"role": "system", "content": system_prompt}]
 
         if context:
+            sanitized_context = _sanitize_context_text_for_model(context)
+            sanitized_user_message = _sanitize_untrusted_text_for_model(user_message)
             # VULNERABILITY: Context added without scanning
             messages.append(
                 {
                     "role": "user",
-                    "content": f"Context:\n{context}\n\nQuery: {user_message}",
+                    "content": f"Context:\n{sanitized_context}\n\nQuery: {sanitized_user_message}",
                 }
             )
         else:
-            messages.append({"role": "user", "content": user_message})
+            sanitized_user_message = _sanitize_untrusted_text_for_model(user_message)
+            messages.append({"role": "user", "content": sanitized_user_message})
 
         return await self.chat(messages)
 
@@ -243,6 +277,7 @@ class BedrockClient:
         without PII scanning or threat detection.
         """
         # VULNERABILITY: No pre-LLM security checks
+        content = _sanitize_context_text_for_model(content)
         return await self.chat_with_context(
             user_message="Please analyze this document and provide a summary.",
             system_prompt="You are a document analyst. Analyze the provided content and summarize key points.",
