@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from llm.openai_compatible import OpenAICompatibleClient
+from agents.unifai_guard import sanitize_prompt, find_prompt_attacks, redact_pii, mask_pii, sanitize_messages, find_code_execution, remove_suspicious_content, remove_hidden_prompts, remove_encoded_prompts, remove_leetspeak_prompts, find_command_requests
 
 
 class AcmeLoanAgentFramework(ABC):
@@ -83,12 +84,26 @@ class AcmeLoanAgentFramework(ABC):
         if not model:
             return "LLM service not configured. Please set OPENROUTER_MODEL."
 
-        return await self.model_client.chat(
+        messages = redact_pii(messages, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation', 'aws_access_key_id', 'aws_secret_access_key', 'gcp_service_account_key', 'azure_client_secret', 'private_key', 'password', 'api_key', 'oauth_token'))
+        messages = remove_suspicious_content(messages)
+        messages = remove_hidden_prompts(messages)
+        messages = remove_encoded_prompts(messages)
+        messages = remove_leetspeak_prompts(messages)
+        messages = sanitize_messages(messages)
+        command_requests = find_command_requests(messages)
+        if command_requests:
+            return "Invalid request."
+
+        response = await self.model_client.chat(
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        code_execution_findings = find_code_execution(response)
+        if code_execution_findings:
+            return "Unsafe model response blocked."
+        return response
 
     @abstractmethod
     async def handle(self, context: dict[str, Any]) -> dict[str, Any]:
