@@ -81,6 +81,7 @@ class CreditEvalAgent(AcmeLoanAgentFramework):
             temperature=0.2,
             max_tokens=250,
         )
+        model_output = self.sanitize_model_output(model_output)
         logger.info(
             "Credit eval LLM response",
             extra={
