@@ -17,9 +17,81 @@ import logging
 import os
 from typing import Optional
 
+from file_parsers.unifai_guard import sanitize_prompt, find_prompt_attacks, redact_pii, mask_pii, sanitize_messages, find_code_execution, remove_suspicious_content, remove_hidden_prompts, remove_encoded_prompts, remove_leetspeak_prompts, find_command_requests
+
 from llm.openai_compatible import OpenAICompatibleClient
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_uploaded_text(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    text = redact_pii(text, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation'))
+    text = remove_suspicious_content(text)
+    text = sanitize_prompt(text)
+    return text
+
+
+def _sanitize_model_input_text(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    return redact_pii(text, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation', 'aws_access_key_id', 'aws_secret_access_key', 'gcp_service_account_key', 'azure_client_secret', 'private_key', 'password', 'api_key', 'oauth_token'))
+
+
+def _sanitize_llm_output_text(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    findings = find_code_execution(text)
+    if not findings:
+        return text
+    cleaned_lines = []
+    for line in text.splitlines(keepends=True):
+        if find_code_execution(line):
+            continue
+        cleaned_lines.append(line)
+    return "".join(cleaned_lines)
+
+
+def _build_safe_vision_image(image_bytes: bytes, mime_type: str) -> tuple[bytes, str]:
+    try:
+        from PIL import Image, ImageDraw
+
+        image = Image.open(io.BytesIO(image_bytes))
+        width, height = image.size
+        safe_image = Image.new("RGB", (max(width, 1), max(height, 1)), color="white")
+        draw = ImageDraw.Draw(safe_image)
+
+        extracted_text = ""
+        try:
+            metadata = image.info or {}
+            for value in metadata.values():
+                if isinstance(value, bytes):
+                    try:
+                        value = value.decode("utf-8", errors="ignore")
+                    except Exception:
+                        value = str(value)
+                if isinstance(value, str) and value:
+                    extracted_text += value + "\n"
+        except Exception:
+            extracted_text = ""
+
+        extracted_text = _sanitize_uploaded_text(extracted_text)
+        extracted_text = _sanitize_model_input_text(extracted_text)
+
+        if extracted_text:
+            draw.multiline_text((10, 10), extracted_text, fill="black", spacing=4)
+
+        output = io.BytesIO()
+        save_format = "PNG"
+        safe_mime_type = "image/png"
+        if mime_type == "image/jpeg":
+            save_format = "JPEG"
+            safe_mime_type = "image/jpeg"
+        safe_image.save(output, format=save_format)
+        return output.getvalue(), safe_mime_type
+    except Exception:
+        return image_bytes, mime_type
 
 
 class ImageParser:
@@ -69,6 +141,8 @@ class ImageParser:
                             value = value.decode('utf-8', errors='ignore')
                         except:
                             value = str(value)
+                    if isinstance(value, str):
+                        value = _sanitize_uploaded_text(value)
                     metadata[tag] = value
 
             # VULNERABILITY: Log metadata without scanning
@@ -117,6 +191,7 @@ class ImageParser:
             if field in metadata:
                 value = metadata[field]
                 if value and isinstance(value, str):
+                    value = _sanitize_uploaded_text(value)
                     text_fields.append(f"{field}: {value}")
                     logger.debug(
                         f"Found text in {field}",
@@ -143,10 +218,11 @@ class ImageParser:
             return ""
 
         try:
+            safe_image_bytes, safe_mime_type = _build_safe_vision_image(image_bytes, mime_type)
             transcription = await self.model_client.chat_vision(
                 model=model,
-                image_base64=base64.b64encode(image_bytes).decode("utf-8"),
-                mime_type=mime_type,
+                image_base64=base64.b64encode(safe_image_bytes).decode("utf-8"),
+                mime_type=safe_mime_type,
                 prompt=(
                     "Transcribe every piece of text visible anywhere in this "
                     "image verbatim - including overlaid captions, watermarks, "
@@ -154,6 +230,8 @@ class ImageParser:
                     "the transcribed text, no commentary."
                 ),
             )
+            transcription = _sanitize_llm_output_text(transcription)
+            transcription = _sanitize_uploaded_text(transcription)
             logger.info(
                 "Image visible-text transcription complete",
                 extra={"model": model, "text_preview": transcription[:200]},
@@ -174,6 +252,8 @@ class ImageParser:
         metadata = await self.extract_metadata(image_bytes)
         text_content = await self.extract_text_fields(metadata)
         visible_text = await self.extract_visible_text(image_bytes, mime_type)
+        text_content = _sanitize_uploaded_text(text_content)
+        visible_text = _sanitize_uploaded_text(visible_text)
 
         # VULNERABILITY: Combine all content without security checks
         result_parts = []
@@ -186,4 +266,7 @@ class ImageParser:
 
         result_parts.append(f"Image Info: {metadata.get('format', 'unknown')} {metadata.get('size', 'unknown')}")
 
-        return '\n\n'.join(result_parts)
+        final_result = '\n\n'.join(result_parts)
+        final_result = _sanitize_uploaded_text(final_result)
+        final_result = _sanitize_llm_output_text(final_result)
+        return final_result
