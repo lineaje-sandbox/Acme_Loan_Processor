@@ -121,6 +121,7 @@ class RateCheckAgent(AcmeLoanAgentFramework):
 
     async def handle(self, context: dict[str, Any]) -> dict[str, Any]:
         user_message = context.get("user_message", "")
+        session_id = context.get("session_id")
         safe_user_message, blocked_unsafe_content = self.sanitize_user_message(user_message)
         prompt_message = safe_user_message
         if blocked_unsafe_content:
