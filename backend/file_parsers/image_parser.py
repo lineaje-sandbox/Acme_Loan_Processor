@@ -18,8 +18,31 @@ import os
 from typing import Optional
 
 from llm.openai_compatible import OpenAICompatibleClient
+from file_parsers.unifai_guard import sanitize_prompt, find_prompt_attacks, redact_pii, mask_pii, sanitize_messages, find_code_execution, remove_suspicious_content, remove_hidden_prompts, remove_encoded_prompts, remove_leetspeak_prompts, find_command_requests
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_uploaded_text(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    text = redact_pii(text, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation'))
+    text = remove_suspicious_content(text)
+    text = sanitize_prompt(text)
+    return text
+
+
+def _remove_code_execution_lines(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    findings = find_code_execution(text)
+    if not findings:
+        return text
+    safe_lines = []
+    for line in text.splitlines(keepends=True):
+        if not find_code_execution(line):
+            safe_lines.append(line)
+    return ''.join(safe_lines)
 
 
 class ImageParser:
@@ -69,6 +92,8 @@ class ImageParser:
                             value = value.decode('utf-8', errors='ignore')
                         except:
                             value = str(value)
+                    if isinstance(value, str):
+                        value = _sanitize_uploaded_text(value)
                     metadata[tag] = value
 
             # VULNERABILITY: Log metadata without scanning
@@ -77,9 +102,7 @@ class ImageParser:
                 extra={
                     "format": image.format,
                     "size": image.size,
-                    "exif_fields": len(metadata),
-                    # VULNERABILITY: Full metadata in logs
-                    "metadata_preview": str(metadata)[:200]
+                    "exif_fields": len(metadata)
                 }
             )
 
@@ -117,13 +140,12 @@ class ImageParser:
             if field in metadata:
                 value = metadata[field]
                 if value and isinstance(value, str):
+                    value = _sanitize_uploaded_text(value)
                     text_fields.append(f"{field}: {value}")
                     logger.debug(
                         f"Found text in {field}",
                         extra={
-                            "field": field,
-                            # VULNERABILITY: Field content logged
-                            "value_preview": value[:50]
+                            "field": field
                         }
                     )
 
@@ -154,9 +176,11 @@ class ImageParser:
                     "the transcribed text, no commentary."
                 ),
             )
+            transcription = _sanitize_uploaded_text(transcription)
+            transcription = _remove_code_execution_lines(transcription)
             logger.info(
                 "Image visible-text transcription complete",
-                extra={"model": model, "text_preview": transcription[:200]},
+                extra={"model": model},
             )
             return transcription
         except Exception as exc:
@@ -179,11 +203,15 @@ class ImageParser:
         result_parts = []
 
         if text_content:
+            text_content = _sanitize_uploaded_text(text_content)
             result_parts.append(f"Image Metadata:\n{text_content}")
 
         if visible_text:
+            visible_text = _remove_code_execution_lines(visible_text)
             result_parts.append(f"Visible Text in Image:\n{visible_text}")
 
         result_parts.append(f"Image Info: {metadata.get('format', 'unknown')} {metadata.get('size', 'unknown')}")
 
-        return '\n\n'.join(result_parts)
+        result = '\n\n'.join(result_parts)
+        result = _remove_code_execution_lines(result)
+        return result
