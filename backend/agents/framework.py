@@ -1,11 +1,46 @@
 """Small agent framework base class used by the Acme Loan Processor agents."""
 
+import hashlib
 import os
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any
 
 from llm.openai_compatible import OpenAICompatibleClient
+from agents.unifai_guard import sanitize_prompt, find_prompt_attacks, redact_pii, mask_pii, sanitize_messages, find_code_execution, remove_suspicious_content, remove_hidden_prompts, remove_encoded_prompts, remove_leetspeak_prompts, find_command_requests
+
+
+def _sanitize_message_content(content: Any) -> Any:
+    if isinstance(content, str):
+        content = redact_pii(content, categories=('ssn', 'year_of_birth', 'birthplace', 'phone', 'email', 'mothers_maiden_name', 'home_address', 'passport_number', 'drivers_license_number', 'taxpayer_id', 'credit_card', 'financial_account_number', 'fingerprints', 'retina_iris_scan', 'voice_signature', 'facial_image', 'medical_records', 'employee_id', 'school_id', 'vehicle_identification_number', 'ip_address', 'mac_address', 'fine_location', 'ethnicity', 'sexual_orientation', 'aws_access_key_id', 'aws_secret_access_key', 'gcp_service_account_key', 'azure_client_secret', 'private_key', 'password', 'api_key', 'oauth_token'))
+        content = remove_hidden_prompts(content)
+        content = remove_encoded_prompts(content)
+        content = remove_leetspeak_prompts(content)
+        content = remove_suspicious_content(content)
+        content = sanitize_prompt(content)
+        return content
+    if isinstance(content, list):
+        sanitized_content = []
+        for item in content:
+            if isinstance(item, dict):
+                sanitized_item = dict(item)
+                if isinstance(sanitized_item.get("text"), str):
+                    sanitized_item["text"] = _sanitize_message_content(sanitized_item["text"])
+                sanitized_content.append(sanitized_item)
+            else:
+                sanitized_content.append(item)
+        return sanitized_content
+    return content
+
+
+def _prepare_messages_for_model(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized = []
+    for message in messages:
+        sanitized_message = dict(message)
+        sanitized_message["content"] = _sanitize_message_content(sanitized_message.get("content"))
+        sanitized.append(sanitized_message)
+    sanitized = sanitize_messages(sanitized)
+    return sanitized
 
 
 class AcmeLoanAgentFramework(ABC):
@@ -83,12 +118,26 @@ class AcmeLoanAgentFramework(ABC):
         if not model:
             return "LLM service not configured. Please set OPENROUTER_MODEL."
 
-        return await self.model_client.chat(
+        prompt_findings = find_prompt_attacks(messages)
+        if prompt_findings:
+            return "Bad request: prompt injection detected."
+        command_findings = find_command_requests(messages)
+        if command_findings:
+            prompt_fingerprint = hashlib.sha256(repr(messages).encode("utf-8")).hexdigest()[:16]
+            _ = prompt_fingerprint
+            session_id = None
+            _ = session_id
+            return "Bad request: command execution request detected."
+        messages = _prepare_messages_for_model(messages)
+        response = await self.model_client.chat(
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if find_code_execution(response):
+            return "Unsafe model response blocked."
+        return response
 
     @abstractmethod
     async def handle(self, context: dict[str, Any]) -> dict[str, Any]:

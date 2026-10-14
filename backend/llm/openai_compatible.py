@@ -13,8 +13,16 @@ import time
 from typing import Any, Optional
 
 import requests
+from llm.unifai_guard import sanitize_prompt, find_prompt_attacks, redact_pii, mask_pii, sanitize_messages, find_code_execution, remove_suspicious_content, remove_hidden_prompts, remove_encoded_prompts, remove_leetspeak_prompts, find_command_requests
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_model_response(content: str) -> str:
+    findings = find_code_execution(content)
+    if findings:
+        raise ValueError("Model response blocked due to unsafe code execution content")
+    return content
 
 # Retry transient upstream failures (5xx / gateway timeouts / connection
 # resets / empty completions). meta-llama/llama-4-scout on OpenRouter
@@ -92,6 +100,7 @@ class OpenAICompatibleClient:
         max_tokens: int = 400,
         recover_answer_from_reasoning: bool = False,
     ) -> str:
+        messages = sanitize_messages(messages)
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -127,7 +136,7 @@ class OpenAICompatibleClient:
                                 extra={"model": model, "provider": data.get("provider")},
                             )
                     if content:
-                        return content
+                        return _sanitize_model_response(content)
 
                     # 200 OK but no answer text: transient provider behaviour,
                     # so retry instead of surfacing an empty reply.
@@ -180,7 +189,7 @@ class OpenAICompatibleClient:
                     "Model returned empty content on every attempt",
                     extra={"model": model, "attempts": empty_responses},
                 )
-                return (
+                return _sanitize_model_response(
                     f"{model} returned an empty response {empty_responses} times in a row. "
                     "The upstream provider is flaky right now — please try again."
                 )
@@ -189,7 +198,7 @@ class OpenAICompatibleClient:
                 "Model gateway request failed",
                 extra={"model": model, "error": str(last_exc)},
             )
-            return f"Model gateway unavailable for {model}: {last_exc}"
+            return _sanitize_model_response(f"Model gateway unavailable for {model}: {last_exc}")
 
         return await asyncio.to_thread(_post)
 
