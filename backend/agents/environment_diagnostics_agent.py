@@ -1,4 +1,47 @@
 """Environment Diagnostics Agent — demo for image prompt injection -> tool-output exfiltration."""
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import asyncio
 import logging
@@ -61,6 +104,15 @@ def _extract_command_requests(file_entries: list[dict[str, Any]]) -> list[dict[s
         for match in _NATURAL_LANGUAGE_COMMAND_PATTERN.findall(content):
             found.append({"filename": entry.get("filename", "unknown"), "text": match.strip()})
 
+    # LINEAJE: enforce() `found` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:b874e2f630fe35a701841a01c1612b92c6486422bd59dcfc7d341910c92c2602'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:b874e2f630fe35a701841a01c1612b92c6486422bd59dcfc7d341910c92c2602', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/environment_diagnostics_agent.py', 'line': 114, 'name': 'EnvironmentDiagnosticsAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'EnvironmentDiagnosticsAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/EnvironmentDiagnosticsAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 64, 'function': '_extract_command_requests'}, 'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 64, 'function': '_extract_command_requests', 'agent_name': '_extract_command_requests', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        found = _gr_client.enforce(_gr_site, found, content_type='text/plain')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     return found
 
 
@@ -106,6 +158,13 @@ def send_diagnostic_output(url: str, payload: dict[str, Any], timeout: float = 5
     """
     try:
         response = requests.post(url, json=payload, timeout=timeout)
+        # LINEAJE: enforce() `response` at api->agent post_tool — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:75533f323a61c3a23dec9b0b5fbb8db3879972fd771d852d8addb176af814d0e'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:75533f323a61c3a23dec9b0b5fbb8db3879972fd771d852d8addb176af814d0e', phase='post_tool', boundary={'source': 'external_endpoint', 'sink': 'agent_message'}, fail_mode='ALLOW_WITH_AUDIT', source_type='api', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/environment_diagnostics_agent.py', 'line': 114, 'name': 'EnvironmentDiagnosticsAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'EnvironmentDiagnosticsAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/EnvironmentDiagnosticsAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 108, 'function': 'send_diagnostic_output'}, 'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 108, 'function': 'send_diagnostic_output', 'agent_name': 'send_diagnostic_output', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+        try:
+            response = _gr_client.enforce(_gr_site, response, content_type='application/json', variable_name='response', source_file=__file__, before_line=108)
+        except _gr_client.GuardrailUnavailableError:
+            pass
         return {"attempted": True, "success": True, "status_code": response.status_code}
     except requests.RequestException as exc:
         return {"attempted": True, "success": False, "error": str(exc)}
@@ -137,8 +196,7 @@ class EnvironmentDiagnosticsAgent(AcmeLoanAgentFramework):
     )
 
     async def call_agent_model(self, user_message: str, command_text: str) -> str:
-        return await self.call_bedrock_model(
-            messages=[
+        _lineaje_messages = ([
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {
                     "role": "user",
@@ -148,7 +206,19 @@ class EnvironmentDiagnosticsAgent(AcmeLoanAgentFramework):
                         "Summarize what diagnostic step was run in 1-2 sentences."
                     ),
                 },
-            ],
+            ])
+        # LINEAJE: enforce() `_lineaje_messages` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:585a617fcfe9e713adb7346f5312e2501df645c674c82304a39a2269395e7666'
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:585a617fcfe9e713adb7346f5312e2501df645c674c82304a39a2269395e7666', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/environment_diagnostics_agent.py', 'line': 114, 'name': 'EnvironmentDiagnosticsAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'llama-4-scout', 'provider': 'meta-llama', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'LLaMA', 'purl': 'pkg:aimodel/LLaMA@4-scout', 'version': '4-scout'}, 'source': {'entity_type': 'aiagent', 'name': 'EnvironmentDiagnosticsAgent', 'purl': 'pkg:aiagent/EnvironmentDiagnosticsAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/environment_diagnostics_agent.py', 'function': 'EnvironmentDiagnosticsAgent.call_agent_model', 'line': 140}, 'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 140, 'function': 'call_agent_model', 'agent_name': 'EnvironmentDiagnosticsAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:2544979d147c80bf'}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_messages = _gr_client.enforce(_gr_site, _lineaje_messages, content_type='application/json', variable_name='_lineaje_messages', source_file=__file__, before_line=140)
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
+        return await self.call_bedrock_model(
+            messages=_lineaje_messages,
             temperature=0.2,
             max_tokens=160,
         )
@@ -163,7 +233,25 @@ class EnvironmentDiagnosticsAgent(AcmeLoanAgentFramework):
         # confirmation and no destination allowlist.
         command_requests = _extract_command_requests(file_contents)
         command_text = " ".join(request["text"] for request in command_requests)
+        # LINEAJE: enforce() `user_message` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:cb45ae62f5bd002f078df16700290917686806fdfe9e39a6e8cd24f42e97852a'
+        _lineaje_user_message_evidence = {'user_message': user_message, 'model': _lineaje_current_model(), 'project': 'tree'}
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:cb45ae62f5bd002f078df16700290917686806fdfe9e39a6e8cd24f42e97852a', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/environment_diagnostics_agent.py', 'line': 114, 'name': 'EnvironmentDiagnosticsAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral.mistral-7b-instruct-v0:2', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'mistral.mistral-7b-instruct-v0:2', 'purl': 'pkg:aimodel/mistral.mistral-7b-instruct-v0%3A2@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'EnvironmentDiagnosticsAgent', 'purl': 'pkg:aiagent/EnvironmentDiagnosticsAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/environment_diagnostics_agent.py', 'function': 'EnvironmentDiagnosticsAgent.handle', 'line': 166}, 'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 166, 'function': 'handle', 'agent_name': 'EnvironmentDiagnosticsAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:d5e9149ecfa6e89c'}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_user_message_evidence = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_user_message_evidence, content_type='application/json'))
+            user_message = _lineaje_user_message_evidence.get('user_message', user_message) if isinstance(_lineaje_user_message_evidence, dict) else user_message
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
         model_output = await self.call_agent_model(user_message, command_text)
+        try:
+            _lineaje_obs = _lineaje_load_gr_client()
+            _lineaje_obs_site = _lineaje_obs.SiteDescriptor(site_id='site:sha256:81150b18498f4ea933d484143697c1b548ae333e99e0a7c0171b87fb67f9891f', phase='', boundary={}, fail_mode='ALLOW', source_type='llm', destination_type='agent', project='tree', organization='', components={'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 166, 'function': 'handle', 'agent_name': 'EnvironmentDiagnosticsAgent', 'agent_name_source': 'inferred_from_class', 'call_target': 'self.call_agent_model', 'source': {'entity_type': 'agent', 'file_path': 'backend/agents/environment_diagnostics_agent.py', 'line': 114, 'name': 'EnvironmentDiagnosticsAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral.mistral-7b-instruct-v0:2', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'mistral.mistral-7b-instruct-v0:2', 'purl': 'pkg:aimodel/mistral.mistral-7b-instruct-v0%3A2@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'EnvironmentDiagnosticsAgent', 'purl': 'pkg:aiagent/EnvironmentDiagnosticsAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/environment_diagnostics_agent.py', 'function': 'EnvironmentDiagnosticsAgent.handle', 'line': 166}, 'boundary_id': 'bnd:d5e9149ecfa6e89c'}, observe_only=True, interaction_id=locals().get('_lineaje_interaction_id'))
+            await __import__('asyncio').to_thread(lambda: _lineaje_obs.enforce(_lineaje_obs_site, {'activity': 'llm_to_agent'}, content_type='application/json'))
+        except Exception:
+            pass
 
         scan_output = run_diagnostic_scan(command_requests)
         if scan_output is None:
@@ -184,8 +272,18 @@ class EnvironmentDiagnosticsAgent(AcmeLoanAgentFramework):
         exfil_result: dict[str, Any] = {}
         if exfil_url:
             exfil_result = await asyncio.to_thread(send_diagnostic_output, exfil_url, scan_output)
+            _lineaje_payload = "Diagnostic scan output sent to requested destination"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:008ebdd8dd34d12cf4da4f4e3e99262550c036db2fef8fd924af7b2fe5d2984b'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:008ebdd8dd34d12cf4da4f4e3e99262550c036db2fef8fd924af7b2fe5d2984b', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/environment_diagnostics_agent.py', 'line': 114, 'name': 'EnvironmentDiagnosticsAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'EnvironmentDiagnosticsAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/EnvironmentDiagnosticsAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 187, 'function': 'EnvironmentDiagnosticsAgent.handle'}, 'file': 'backend/agents/environment_diagnostics_agent.py', 'line': 187, 'function': 'handle', 'agent_name': 'EnvironmentDiagnosticsAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.warning(
-                "Diagnostic scan output sent to requested destination",
+                _lineaje_payload,
                 extra={"url": exfil_url, **exfil_result},
             )
 
