@@ -1,4 +1,47 @@
 """Credit Eval Agent class with explicit model invocation."""
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import logging
 import re
@@ -58,8 +101,18 @@ class CreditEvalAgent(AcmeLoanAgentFramework):
         return "\n".join(safe_lines).strip() or "Underwriting note unavailable."
 
     async def call_agent_model(self, combined_context: str) -> str:
+        _lineaje_payload = "Credit eval LLM request"
+        # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:c3f4d3e61931bf32dc58dffde5826cc0374a4e179178924fcc78ffb8b2c2720e'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:c3f4d3e61931bf32dc58dffde5826cc0374a4e179178924fcc78ffb8b2c2720e', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 30, 'name': 'Mistral'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'Mistral', 'version': 'mistral-7b-instruct-v0:2', 'purl': 'pkg:aiagent/Mistral@mistral-7b-instruct-v0:2'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'line': 61, 'function': 'CreditEvalAgent.call_agent_model'}, 'file': 'backend/agents/credit_eval_agent.py', 'line': 61, 'function': 'call_agent_model', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info(
-            "Credit eval LLM request",
+            _lineaje_payload,
             extra={
                 "agent": self.AGENT_ID,
                 "model": self.BEDROCK_MODEL_ID,
@@ -67,8 +120,7 @@ class CreditEvalAgent(AcmeLoanAgentFramework):
                 "contains_pii": True,
             },
         )
-        model_output = await self.call_bedrock_model(
-            messages=[
+        _lineaje_messages = ([
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {
                     "role": "user",
@@ -77,18 +129,56 @@ class CreditEvalAgent(AcmeLoanAgentFramework):
                         "Provide a short underwriting note."
                     ),
                 },
-            ],
+            ])
+        # LINEAJE: enforce() `_lineaje_messages` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:4cc590c618c9cfb77b8fba28047293983a1dab76920227ab5e066b31cad0a402'
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:4cc590c618c9cfb77b8fba28047293983a1dab76920227ab5e066b31cad0a402', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 17, 'name': 'CreditEvalAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'llama-4-scout', 'provider': 'meta-llama', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'LLaMA', 'purl': 'pkg:aimodel/LLaMA@4-scout', 'version': '4-scout'}, 'source': {'entity_type': 'aiagent', 'name': 'CreditEvalAgent', 'purl': 'pkg:aiagent/CreditEvalAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'function': 'CreditEvalAgent.call_agent_model', 'line': 70}, 'file': 'backend/agents/credit_eval_agent.py', 'line': 70, 'function': 'call_agent_model', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:8e2c0acdb6109080'}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_messages = _gr_client.enforce(_gr_site, _lineaje_messages, content_type='application/json', variable_name='_lineaje_messages', source_file=__file__, before_line=70)
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
+        model_output = await self.call_bedrock_model(
+            messages=_lineaje_messages,
             temperature=0.2,
             max_tokens=250,
         )
+        # LINEAJE: enforce() `model_output` at llm->agent post_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:06538eeb20f959c01be2e05f4f8f0e36ffd03190d71c3a5628bcb0c8272c8582'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:06538eeb20f959c01be2e05f4f8f0e36ffd03190d71c3a5628bcb0c8272c8582', phase='post_model', boundary={'source': 'model', 'sink': 'agent_message'}, fail_mode='BLOCK', source_type='llm', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 17, 'name': 'CreditEvalAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'llama-4-scout', 'provider': 'meta-llama', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'LLaMA', 'purl': 'pkg:aimodel/LLaMA@4-scout', 'version': '4-scout'}, 'source': {'entity_type': 'aiagent', 'name': 'CreditEvalAgent', 'purl': 'pkg:aiagent/CreditEvalAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'function': 'CreditEvalAgent.call_agent_model', 'line': 70}, 'file': 'backend/agents/credit_eval_agent.py', 'line': 70, 'function': 'call_agent_model', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:8e2c0acdb6109080'}, interaction_id=locals().get('_lineaje_interaction_id'))
+        try:
+            model_output = _gr_client.enforce(_gr_site, model_output, content_type='application/json', variable_name='model_output', source_file=__file__, before_line=70)
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        _lineaje_payload = "Credit eval LLM response"
+        # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:1dd406088094564d4e72f9acf6be87b3e87b1eeea36271e0c76e11b147121ff2'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:1dd406088094564d4e72f9acf6be87b3e87b1eeea36271e0c76e11b147121ff2', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 30, 'name': 'Mistral'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'Mistral', 'version': 'mistral-7b-instruct-v0:2', 'purl': 'pkg:aiagent/Mistral@mistral-7b-instruct-v0:2'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'line': 84, 'function': 'CreditEvalAgent.call_agent_model'}, 'file': 'backend/agents/credit_eval_agent.py', 'line': 84, 'function': 'call_agent_model', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info(
-            "Credit eval LLM response",
+            _lineaje_payload,
             extra={
                 "agent": self.AGENT_ID,
                 "model": self.BEDROCK_MODEL_ID,
                 "response_length": len(model_output or ""),
             },
         )
+        # LINEAJE: enforce() `model_output` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:a9b3b6a8a5b51cc1a08909ba41ef94c00ddbe783c10586f36ba8fa5d2fcd7ecf'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:a9b3b6a8a5b51cc1a08909ba41ef94c00ddbe783c10586f36ba8fa5d2fcd7ecf', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 30, 'name': 'Mistral'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'Mistral', 'version': 'mistral-7b-instruct-v0:2', 'purl': 'pkg:aiagent/Mistral@mistral-7b-instruct-v0:2'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'line': 92, 'function': 'CreditEvalAgent.call_agent_model'}, 'file': 'backend/agents/credit_eval_agent.py', 'line': 92, 'function': 'call_agent_model', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            model_output = _gr_client.enforce(_gr_site, model_output, content_type='text/plain')
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         return model_output
 
     async def handle(self, context: dict[str, Any]) -> dict[str, Any]:
@@ -104,7 +194,25 @@ class CreditEvalAgent(AcmeLoanAgentFramework):
         safe_combined_context, blocked_unsafe_content = self.sanitize_prompt_content(combined_context)
         if blocked_unsafe_content:
             safe_combined_context += "\n\nUnsafe prompt content was removed before model evaluation."
+        # LINEAJE: enforce() `safe_combined_context` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:6144ef2d6029f487947e23c6ea756ed80b820c06e3e6eaffb1e7062dd32d566a'
+        _lineaje_safe_combined_context_evidence = {'safe_combined_context': safe_combined_context, 'model': _lineaje_current_model(), 'project': 'tree'}
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:6144ef2d6029f487947e23c6ea756ed80b820c06e3e6eaffb1e7062dd32d566a', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 30, 'name': 'Mistral', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral.mistral-7b-instruct-v0:2', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'mistral.mistral-7b-instruct-v0:2', 'purl': 'pkg:aimodel/mistral.mistral-7b-instruct-v0%3A2@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'Mistral', 'purl': 'pkg:aiagent/Mistral@mistral-7b-instruct-v0:2', 'version': 'mistral-7b-instruct-v0:2'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'function': 'CreditEvalAgent.handle', 'line': 107}, 'file': 'backend/agents/credit_eval_agent.py', 'line': 107, 'function': 'handle', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:5dfb8636ba4abf77'}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_safe_combined_context_evidence = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_safe_combined_context_evidence, content_type='application/json'))
+            safe_combined_context = _lineaje_safe_combined_context_evidence.get('safe_combined_context', safe_combined_context) if isinstance(_lineaje_safe_combined_context_evidence, dict) else safe_combined_context
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
         model_output = self.sanitize_model_output(await self.call_agent_model(safe_combined_context))
+        try:
+            _lineaje_obs = _lineaje_load_gr_client()
+            _lineaje_obs_site = _lineaje_obs.SiteDescriptor(site_id='site:sha256:47752653b1f75c9b3cc38a35f1c3f62620d3ba6bda7c5b4a1360652e151c0934', phase='', boundary={}, fail_mode='ALLOW', source_type='llm', destination_type='agent', project='tree', organization='', components={'file': 'backend/agents/credit_eval_agent.py', 'line': 107, 'function': 'handle', 'agent_name': 'CreditEvalAgent', 'agent_name_source': 'inferred_from_class', 'call_target': 'self.sanitize_model_output', 'source': {'entity_type': 'agent', 'file_path': 'backend/agents/credit_eval_agent.py', 'line': 30, 'name': 'Mistral', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral.mistral-7b-instruct-v0:2', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'mistral.mistral-7b-instruct-v0:2', 'purl': 'pkg:aimodel/mistral.mistral-7b-instruct-v0%3A2@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'Mistral', 'purl': 'pkg:aiagent/Mistral@mistral-7b-instruct-v0:2', 'version': 'mistral-7b-instruct-v0:2'}}, 'invocation': {'file': 'backend/agents/credit_eval_agent.py', 'function': 'CreditEvalAgent.handle', 'line': 107}, 'boundary_id': 'bnd:5dfb8636ba4abf77'}, observe_only=True, interaction_id=locals().get('_lineaje_interaction_id'))
+            await __import__('asyncio').to_thread(lambda: _lineaje_obs.enforce(_lineaje_obs_site, {'activity': 'llm_to_agent'}, content_type='application/json'))
+        except Exception:
+            pass
 
         # Vulnerability: these raw PII fields are intentionally returned to the UI
         # instead of being masked before display.
