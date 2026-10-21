@@ -1,4 +1,47 @@
 """File Management Agent — demo for HITL-required destructive operations."""
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import logging
 import re
@@ -39,8 +82,7 @@ class FileManagementAgent(AcmeLoanAgentFramework):
     API_TIMEOUT = 30
 
     async def call_agent_model(self, user_message: str, workflow_summary: str) -> str:
-        return await self.call_bedrock_model(
-            messages=[
+        _lineaje_messages = ([
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {
                     "role": "user",
@@ -50,7 +92,19 @@ class FileManagementAgent(AcmeLoanAgentFramework):
                         "Summarize the file management actions in 2-3 sentences."
                     ),
                 },
-            ],
+            ])
+        # LINEAJE: enforce() `_lineaje_messages` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:19754beef9039bf2e47e669f185a39a388cae16e692f1e9d683a5a4e6751b510'
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:19754beef9039bf2e47e669f185a39a388cae16e692f1e9d683a5a4e6751b510', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral 7b-instruct', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'Mistral 7b-instruct', 'purl': 'pkg:aimodel/Mistral%207b-instruct@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'function': 'FileManagementAgent.call_agent_model', 'line': 42}, 'file': 'backend/agents/file_management_agent.py', 'line': 42, 'function': 'call_agent_model', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:f10b91a0a2c8c0a4'}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_messages = _gr_client.enforce(_gr_site, _lineaje_messages, content_type='application/json', variable_name='_lineaje_messages', source_file=__file__, before_line=42)
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
+        return await self.call_bedrock_model(
+            messages=_lineaje_messages,
             temperature=0.2,
             max_tokens=200,
         )
@@ -76,26 +130,74 @@ class FileManagementAgent(AcmeLoanAgentFramework):
 
     def get_file_from_api(self, file_id: int = 50) -> tuple[bool, Optional[str], Optional[str]]:
         url = f"{self.GET_FILE_API}?id={file_id}"
+        # LINEAJE: enforce() `url` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:d301a63f38cf75c1a2d0a3da376271641870b0be23383e47e7e44c17720f921d'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:d301a63f38cf75c1a2d0a3da376271641870b0be23383e47e7e44c17720f921d', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 79, 'function': 'FileManagementAgent.get_file_from_api'}, 'file': 'backend/agents/file_management_agent.py', 'line': 79, 'function': 'get_file_from_api', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            url = _gr_client.enforce(_gr_site, url, content_type='application/json')
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info("Retrieving file from API: %s", url)
         try:
             response = requests.get(url, timeout=self.API_TIMEOUT)
+            # LINEAJE: enforce() `response` at api->agent post_tool — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:97d884f34d1a5897c7522e54d0960c46344c2dd07c586687ae972046a68ba190'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:97d884f34d1a5897c7522e54d0960c46344c2dd07c586687ae972046a68ba190', phase='post_tool', boundary={'source': 'external_endpoint', 'sink': 'agent_message'}, fail_mode='ALLOW_WITH_AUDIT', source_type='api', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 81, 'function': 'FileManagementAgent.get_file_from_api'}, 'file': 'backend/agents/file_management_agent.py', 'line': 81, 'function': 'get_file_from_api', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                response = _gr_client.enforce(_gr_site, response, content_type='application/json', variable_name='response', source_file=__file__, before_line=81)
+            except _gr_client.GuardrailUnavailableError:
+                pass
             if response.status_code != 200:
                 return False, None, f"API returned status {response.status_code}"
             return True, response.text, None
         except requests.RequestException as exc:
             # Demo path: continue workflow even when the external API is unreachable.
+            # LINEAJE: enforce() `exc` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:6d8cdb030af7a9b215aef65d6d8d8e4c16a4ef0f10553ea051b35ee7b47975c9'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:6d8cdb030af7a9b215aef65d6d8d8e4c16a4ef0f10553ea051b35ee7b47975c9', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 87, 'function': 'FileManagementAgent.get_file_from_api'}, 'file': 'backend/agents/file_management_agent.py', 'line': 87, 'function': 'get_file_from_api', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                exc = _gr_client.enforce(_gr_site, exc, content_type='application/json')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.warning("get_file_from_api failed: %s", exc)
             return True, "SIMULATED_FILE_CONTENT", None
 
     async def delete_file(self, filename: str) -> tuple[bool, Optional[str]]:
         """Delete a loan document. Intentionally has no HITL approval gate."""
+        # LINEAJE: enforce() `filename` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:aad10a9069e1c1b50fac85fe8343a824f027d2fd71222583a7e9d9bd97f00b9c'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:aad10a9069e1c1b50fac85fe8343a824f027d2fd71222583a7e9d9bd97f00b9c', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 92, 'function': 'FileManagementAgent.delete_file'}, 'file': 'backend/agents/file_management_agent.py', 'line': 92, 'function': 'delete_file', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            filename = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, filename, content_type='application/json'))
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info("Deleting file: %s", filename)
         if not filename or ".." in filename or filename.startswith("/"):
             return False, "Invalid filename"
 
         # Vulnerability: destructive delete executes without human-in-the-loop approval.
+        try:
+            _lineaje_obs = _lineaje_load_gr_client()
+            _lineaje_obs_site = _lineaje_obs.SiteDescriptor(site_id='site:sha256:88b428e023147a5c438af94245c948dc0c9f4d4623c145beed4c999006470c33', phase='', boundary={}, fail_mode='ALLOW', source_type='tool', destination_type='agent', project='tree', organization='', components={'file': 'backend/agents/file_management_agent.py', 'line': 97, 'function': 'delete_file', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'call_target': 'call_mcp_server', 'source': {'entity_type': 'agent', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'mcpserver', 'name': 'docx', 'purl': 'pkg:mcpserver/docx@streamable-http', 'version': 'streamable-http'}, 'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'function': 'FileManagementAgent.delete_file', 'line': 97}, 'destination': {'entity_type': 'mcp_server', 'file_path': 'backend/agents/mcp_servers.py', 'line': 79, 'name': 'docx', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'boundary_id': 'bnd:78701de85ffbd0c7'}, observe_only=True)
+            await __import__('asyncio').to_thread(lambda: _lineaje_obs.enforce(_lineaje_obs_site, {'activity': 'tool_result'}, content_type='application/json'))
+        except Exception:
+            pass
+        _lineaje_payload = self.to_dict()
+        # LINEAJE: enforce() `_lineaje_payload` at agent->tool pre_tool — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:521f3c604fbf6df164a45760cd4753808a52cd2c6ecab7e406bbc42f7f1bda41'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:521f3c604fbf6df164a45760cd4753808a52cd2c6ecab7e406bbc42f7f1bda41', phase='pre_tool', boundary={'source': 'agent_message', 'sink': 'tool_result'}, fail_mode='ALLOW_WITH_AUDIT', source_type='agent', destination_type='tool', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'mcpserver', 'name': 'docx', 'purl': 'pkg:mcpserver/docx@streamable-http', 'version': 'streamable-http'}, 'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'function': 'FileManagementAgent.delete_file', 'line': 97}, 'destination': {'entity_type': 'mcp_server', 'file_path': 'backend/agents/mcp_servers.py', 'line': 79, 'name': 'docx', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'file': 'backend/agents/file_management_agent.py', 'line': 97, 'function': 'delete_file', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:78701de85ffbd0c7'})
+        try:
+            _lineaje_payload = _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json', variable_name='_lineaje_payload', source_file=__file__, before_line=97)
+        except _gr_client.GuardrailUnavailableError:
+            pass
         await call_mcp_server(
-            self.to_dict(),
+            _lineaje_payload,
             "Docx",
             "create_document",
             {
@@ -103,26 +205,93 @@ class FileManagementAgent(AcmeLoanAgentFramework):
                 "document_body": f"deleteFile(fileName='{filename}') completed without HITL approval.",
             },
         )
+        # LINEAJE: enforce() `filename` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:df9c11db9f317ff39f88ee44dd8ca71ee32d8cae2a350228e3553849eb7379fc'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:df9c11db9f317ff39f88ee44dd8ca71ee32d8cae2a350228e3553849eb7379fc', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 106, 'function': 'FileManagementAgent.delete_file'}, 'file': 'backend/agents/file_management_agent.py', 'line': 106, 'function': 'delete_file', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            filename = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, filename, content_type='application/json'))
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info("Would call: deleteFile(fileName='%s')", filename)
         return True, None
 
     def purge_records(self, record_id: int) -> tuple[bool, Optional[str]]:
         """Purge archived records. Intentionally has no HITL approval gate."""
         url = f"{self.PURGE_RECORDS_API}?id={record_id}"
+        # LINEAJE: enforce() `url` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:2b05a9c3eb293bded245970496dad3e40276b080990794d928587963fb9862dc'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:2b05a9c3eb293bded245970496dad3e40276b080990794d928587963fb9862dc', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 15, 'name': 'FileManagementAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'FileManagementAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/FileManagementAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 112, 'function': 'FileManagementAgent.purge_records'}, 'file': 'backend/agents/file_management_agent.py', 'line': 112, 'function': 'purge_records', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            url = _gr_client.enforce(_gr_site, url, content_type='application/json')
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info("Purging records via API: %s", url)
         try:
             # Vulnerability: purge/destroy-style API call runs without HITL approval.
+            # LINEAJE: enforce() `url` at agent->tool pre_tool — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:b8d21410efe7a92883ecf2c6d049c2ddbab6158fa99937ebfec009de9808faac'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:b8d21410efe7a92883ecf2c6d049c2ddbab6158fa99937ebfec009de9808faac', phase='pre_tool', boundary={'source': 'agent_message', 'sink': 'tool_result'}, fail_mode='ALLOW_WITH_AUDIT', source_type='agent', destination_type='tool', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'mcpserver', 'name': 'docx', 'purl': 'pkg:mcpserver/docx@create_document', 'version': 'create_document'}, 'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'purl': 'pkg:aiagent/purge_records@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'function': 'FileManagementAgent.purge_records', 'line': 115}, 'destination': {'entity_type': 'mcp_server', 'file_path': 'backend/agents/file_management_agent.py', 'line': 97, 'name': 'docx', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'file': 'backend/agents/file_management_agent.py', 'line': 115, 'function': 'purge_records', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:1b1490f8b1e860e9'})
+            try:
+                url = _gr_client.enforce(_gr_site, url, content_type='application/json', variable_name='url', source_file=__file__, before_line=115)
+            except _gr_client.GuardrailUnavailableError:
+                pass
             response = requests.get(url, timeout=self.API_TIMEOUT)
+            # LINEAJE: enforce() `response` at tool->agent post_tool — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:ea0ac7f337344183026a99a9883f13f5fa68f37a4073ac631b1d1af51576ebe5'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:ea0ac7f337344183026a99a9883f13f5fa68f37a4073ac631b1d1af51576ebe5', phase='post_tool', boundary={'source': 'tool_result', 'sink': 'agent_message'}, fail_mode='ALLOW_WITH_AUDIT', source_type='tool', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'mcpserver', 'name': 'docx', 'purl': 'pkg:mcpserver/docx@create_document', 'version': 'create_document'}, 'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'purl': 'pkg:aiagent/purge_records@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'function': 'FileManagementAgent.purge_records', 'line': 115}, 'destination': {'entity_type': 'mcp_server', 'file_path': 'backend/agents/file_management_agent.py', 'line': 97, 'name': 'docx', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'file': 'backend/agents/file_management_agent.py', 'line': 115, 'function': 'purge_records', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:1b1490f8b1e860e9'})
+            try:
+                response = _gr_client.enforce(_gr_site, response, content_type='application/json', variable_name='response', source_file=__file__, before_line=115)
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            # LINEAJE: enforce() `response` at api->agent post_tool — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:82963963dc79951b133cb20da288372e53003a6f98edc4176e158feabc62637a'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:82963963dc79951b133cb20da288372e53003a6f98edc4176e158feabc62637a', phase='post_tool', boundary={'source': 'external_endpoint', 'sink': 'agent_message'}, fail_mode='ALLOW_WITH_AUDIT', source_type='api', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'version': '1.0.0', 'purl': 'pkg:aiagent/purge_records@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 115, 'function': 'FileManagementAgent.purge_records'}, 'file': 'backend/agents/file_management_agent.py', 'line': 115, 'function': 'purge_records', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                response = _gr_client.enforce(_gr_site, response, content_type='application/json', variable_name='response', source_file=__file__, before_line=115)
+            except _gr_client.GuardrailUnavailableError:
+                pass
             if response.status_code != 200:
-                logger.warning("purge_records API returned %s; simulating success for demo", response.status_code)
+                _lineaje_payload = "purge_records API returned %s; simulating success for demo"
+                # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:9e7885e8b2aa3b02513d67ccd4f3c55cf2b244225420b3a11824e2bd983a564c'
+                _gr_client = _lineaje_load_gr_client()
+                _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:9e7885e8b2aa3b02513d67ccd4f3c55cf2b244225420b3a11824e2bd983a564c', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'version': '1.0.0', 'purl': 'pkg:aiagent/purge_records@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 117, 'function': 'FileManagementAgent.purge_records'}, 'file': 'backend/agents/file_management_agent.py', 'line': 117, 'function': 'purge_records', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                try:
+                    _lineaje_payload = _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json')
+                except _gr_client.GuardrailUnavailableError:
+                    pass
+                except PermissionError:
+                    pass
+                logger.warning(_lineaje_payload, response.status_code)
             return True, None
         except requests.RequestException as exc:
+            # LINEAJE: enforce() `exc` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:1473b7426fbb19d4707d9908ccd0dc9b1aa9343ee5986f649c197c4b20338130'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:1473b7426fbb19d4707d9908ccd0dc9b1aa9343ee5986f649c197c4b20338130', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'version': '1.0.0', 'purl': 'pkg:aiagent/purge_records@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 120, 'function': 'FileManagementAgent.purge_records'}, 'file': 'backend/agents/file_management_agent.py', 'line': 120, 'function': 'purge_records', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                exc = _gr_client.enforce(_gr_site, exc, content_type='application/json')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.warning("purge_records failed: %s; simulating success for demo", exc)
             return True, None
 
     def destroy_temp_artifacts(self, filename: str) -> None:
         """Destroy temporary artifacts after delete/purge. No HITL gate."""
         # Vulnerability: destroy operation executes without human approval.
+        # LINEAJE: enforce() `filename` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:85413e9198e98cbe2add7cc696518e51ad80f69e52e9b4750580674442a875f8'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:85413e9198e98cbe2add7cc696518e51ad80f69e52e9b4750580674442a875f8', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'version': '1.0.0', 'purl': 'pkg:aiagent/purge_records@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 126, 'function': 'FileManagementAgent.destroy_temp_artifacts'}, 'file': 'backend/agents/file_management_agent.py', 'line': 126, 'function': 'destroy_temp_artifacts', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            filename = _gr_client.enforce(_gr_site, filename, content_type='application/json')
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         logger.info("destroy_temp_artifacts('%s') executed without HITL approval", filename)
 
     async def handle(self, context: dict[str, Any]) -> dict[str, Any]:
@@ -142,7 +311,25 @@ class FileManagementAgent(AcmeLoanAgentFramework):
             f"Destroy temp artifacts for '{filename}': completed\n"
             f"Content preview: {(content or '')[:80]}"
         )
+        # LINEAJE: enforce() `user_message` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:75460871d99d41f3f28f4c43522f847ca148c9705009bc3ebccfe51d2c4812a8'
+        _lineaje_user_message_evidence = {'user_message': user_message, 'model': _lineaje_current_model(), 'project': 'tree'}
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:75460871d99d41f3f28f4c43522f847ca148c9705009bc3ebccfe51d2c4812a8', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/file_management_agent.py', 'line': 115, 'name': 'purge_records'}, 'destination': {'entity_type': 'llm', 'name': 'mistral 7b-instruct', 'version': '', 'provider': 'mistral'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'purge_records', 'version': '1.0.0', 'purl': 'pkg:aiagent/purge_records@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}, 'destination': {'entity_type': 'aimodel', 'name': 'Mistral 7b-instruct', 'version': 'v0:2', 'purl': 'pkg:aimodel/Mistral%207b-instruct@v0:2'}}, 'invocation': {'file': 'backend/agents/file_management_agent.py', 'line': 145, 'function': 'FileManagementAgent.handle'}, 'file': 'backend/agents/file_management_agent.py', 'line': 145, 'function': 'handle', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_user_message_evidence = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_user_message_evidence, content_type='application/json'))
+            user_message = _lineaje_user_message_evidence.get('user_message', user_message) if isinstance(_lineaje_user_message_evidence, dict) else user_message
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
         model_output = await self.call_agent_model(user_message, workflow_summary)
+        try:
+            _lineaje_obs = _lineaje_load_gr_client()
+            _lineaje_obs_site = _lineaje_obs.SiteDescriptor(site_id='site:sha256:0d68eec21251c0df6abcfd4194717542127833fb9025f709beb12f6072fa8cec', phase='', boundary={}, fail_mode='ALLOW', source_type='llm', destination_type='agent', project='tree', organization='', components={'file': 'backend/agents/file_management_agent.py', 'line': 145, 'function': 'handle', 'agent_name': 'FileManagementAgent', 'agent_name_source': 'inferred_from_class', 'call_target': 'self.call_agent_model', 'not_on_graph': True}, observe_only=True, interaction_id=locals().get('_lineaje_interaction_id'))
+            await __import__('asyncio').to_thread(lambda: _lineaje_obs.enforce(_lineaje_obs_site, {'activity': 'llm_to_agent'}, content_type='application/json'))
+        except Exception:
+            pass
 
         response = (
             "File Management Agent workflow complete.\n\n"
