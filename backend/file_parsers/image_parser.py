@@ -10,6 +10,49 @@ SECURITY NOTES (for Unifai demo):
 - Comments and descriptions could contain prompt injections
 - No malware detection
 """
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import base64
 import io
@@ -72,8 +115,18 @@ class ImageParser:
                     metadata[tag] = value
 
             # VULNERABILITY: Log metadata without scanning
+            _lineaje_payload = "Image metadata extracted"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:51488602996e6b7101fac4a750bdbf7de3ffffcda0c432b73181e3de5bc3e364'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:51488602996e6b7101fac4a750bdbf7de3ffffcda0c432b73181e3de5bc3e364', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 75, 'function': 'ImageParser.extract_metadata'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 75, 'function': 'extract_metadata', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.info(
-                "Image metadata extracted",
+                _lineaje_payload,
                 extra={
                     "format": image.format,
                     "size": image.size,
@@ -83,10 +136,29 @@ class ImageParser:
                 }
             )
 
+            # LINEAJE: enforce() `metadata` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:ec3d8e722d0075200cb4fa022ebca1a2024d83ad856e0637fd7679fe542fb72c'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:ec3d8e722d0075200cb4fa022ebca1a2024d83ad856e0637fd7679fe542fb72c', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 86, 'function': 'ImageParser.extract_metadata'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 86, 'function': 'extract_metadata', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                metadata = _gr_client.enforce(_gr_site, metadata, content_type='text/plain')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             return metadata
 
         except Exception as e:
-            logger.error(f"Image metadata extraction error: {e}")
+            _lineaje_payload = f"Image metadata extraction error: {e}"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:8bc045cf31083a6b4ecad324a61aa7de53e29d5bf86f9e2c7149a493f9f916bd'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:8bc045cf31083a6b4ecad324a61aa7de53e29d5bf86f9e2c7149a493f9f916bd', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 89, 'function': 'ImageParser.extract_metadata'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 89, 'function': 'extract_metadata', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
+            logger.error(_lineaje_payload)
             return {"error": str(e)}
 
     async def extract_text_fields(self, metadata: dict) -> str:
@@ -118,8 +190,18 @@ class ImageParser:
                 value = metadata[field]
                 if value and isinstance(value, str):
                     text_fields.append(f"{field}: {value}")
+                    _lineaje_payload = f"Found text in {field}"
+                    # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:48eecbd2f1f9f943e642bd49b7f0a7e4be94c34db6e5975ee419f05dbb8cd715'
+                    _gr_client = _lineaje_load_gr_client()
+                    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:48eecbd2f1f9f943e642bd49b7f0a7e4be94c34db6e5975ee419f05dbb8cd715', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 121, 'function': 'ImageParser.extract_text_fields'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 121, 'function': 'extract_text_fields', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                    try:
+                        _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+                    except _gr_client.GuardrailUnavailableError:
+                        pass
+                    except PermissionError:
+                        pass
                     logger.debug(
-                        f"Found text in {field}",
+                        _lineaje_payload,
                         extra={
                             "field": field,
                             # VULNERABILITY: Field content logged
@@ -154,13 +236,42 @@ class ImageParser:
                     "the transcribed text, no commentary."
                 ),
             )
+            _lineaje_payload = "Image visible-text transcription complete"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:01de8d35067d0d2c94bcfa9ba328b7a936048d911f8d2b00bd73ea1edeed2711'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:01de8d35067d0d2c94bcfa9ba328b7a936048d911f8d2b00bd73ea1edeed2711', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 157, 'function': 'ImageParser.extract_visible_text'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 157, 'function': 'extract_visible_text', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.info(
-                "Image visible-text transcription complete",
+                _lineaje_payload,
                 extra={"model": model, "text_preview": transcription[:200]},
             )
+            # LINEAJE: enforce() `transcription` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:a8658ad6dbc910ee0e7a954b6a734761c16b4b37b0ecbd4d52271468282490cb'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:a8658ad6dbc910ee0e7a954b6a734761c16b4b37b0ecbd4d52271468282490cb', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 161, 'function': 'ImageParser.extract_visible_text'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 161, 'function': 'extract_visible_text', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                transcription = _gr_client.enforce(_gr_site, transcription, content_type='text/plain')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             return transcription
         except Exception as exc:
-            logger.error(f"Image vision transcription error: {exc}")
+            _lineaje_payload = f"Image vision transcription error: {exc}"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:f0ac34bac31196685f08ed64f5f0548140bde0e24ef4964599a2e56f1ee4904f'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:f0ac34bac31196685f08ed64f5f0548140bde0e24ef4964599a2e56f1ee4904f', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/image_parser.py', 'line': 163, 'function': 'ImageParser.extract_visible_text'}, 'file': 'backend/file_parsers/image_parser.py', 'line': 163, 'function': 'extract_visible_text', 'agent_name': 'ImageParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
+            logger.error(_lineaje_payload)
             return ""
 
     async def extract_all(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
