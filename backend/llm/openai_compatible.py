@@ -4,6 +4,49 @@ OpenAI-compatible model gateway client.
 This keeps the request shape real and makes the selected model visible in each
 agent file via the `model=` argument on every call.
 """
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import asyncio
 import logging
@@ -108,12 +151,36 @@ class OpenAICompatibleClient:
             empty_responses = 0
             for attempt in range(1, _MAX_ATTEMPTS + 1):
                 try:
+                    _lineaje_json = payload
+                    # LINEAJE: enforce() `_lineaje_json` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:c6dbb7ec338ef23de28b011d24a29577cb560971803db0cd0dacb6694589d019'
+                    _gr_client = _lineaje_load_gr_client()
+                    _lineaje_interaction_id = _gr_client.new_interaction_id()
+                    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:c6dbb7ec338ef23de28b011d24a29577cb560971803db0cd0dacb6694589d019', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'function': 'OpenAICompatibleClient.chat._post', 'line': 111}, 'file': 'backend/llm/openai_compatible.py', 'line': 111, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:e6935cef349282f5'}, interaction_id=_lineaje_interaction_id)
+                    try:
+                        if getattr(_gr_client, 'STUB_API', 0) < 3:
+                            __import__("logging").getLogger("lineaje.gr_client").error("gr_stub_client.py predates enforce_request (STUB_API 3): this site is NOT enforced; replace gr_stub_client.py with the current companion")
+                            raise _gr_client.GuardrailUnavailableError("stale gr_stub_client.py: no enforce_request")
+                        _lineaje_json = _gr_client.enforce_request(_gr_site, _lineaje_json, content_type='application/json', evidence={'model': (getattr(_lineaje_load_gr_client(), 'header_model', None) or (lambda h: None))(headers), 'model_source': 'header'})
+                    except _gr_client.GuardrailUnavailableError:
+                        pass
+                    except PermissionError:
+                        raise
                     response = requests.post(
                         f"{self.base_url}/chat/completions",
-                        json=payload,
+                        json=_lineaje_json,
                         headers=headers,
                         timeout=_REQUEST_TIMEOUT_SEC,
                     )
+                    # LINEAJE: enforce() `response` at llm->agent post_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:9d3d7ff8b6931555bc184da87e71c1a0984e8e02536cfb110b2f0ff365189446'
+                    _gr_client = _lineaje_load_gr_client()
+                    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:9d3d7ff8b6931555bc184da87e71c1a0984e8e02536cfb110b2f0ff365189446', phase='post_model', boundary={'source': 'model', 'sink': 'agent_message'}, fail_mode='BLOCK', source_type='llm', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'function': 'OpenAICompatibleClient.chat._post', 'line': 111}, 'file': 'backend/llm/openai_compatible.py', 'line': 111, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:e6935cef349282f5'}, interaction_id=locals().get('_lineaje_interaction_id'))
+                    try:
+                        if not hasattr(_gr_client, 'enforce_reply'):
+                            __import__("logging").getLogger("lineaje.gr_client").error("gr_stub_client.py predates enforce_reply (STUB_API 2): this site is NOT enforced; replace gr_stub_client.py with the current companion")
+                            raise _gr_client.GuardrailUnavailableError("stale gr_stub_client.py: no enforce_reply")
+                        response = _gr_client.enforce_reply(_gr_site, response, content_type='application/json')
+                    except _gr_client.GuardrailUnavailableError:
+                        pass
                     response.raise_for_status()
                     data = response.json()
                     choices = data.get("choices") or []
@@ -122,11 +189,30 @@ class OpenAICompatibleClient:
                     if not content and recover_answer_from_reasoning:
                         content = _answer_from_reasoning(message.get("reasoning") or "")
                         if content:
+                            _lineaje_payload = "Recovered answer from the reasoning field"
+                            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:c3bbe445b49347f82d66ab5734bf0e9e4427ac3ddbd1047479984e61ba8762f0'
+                            _gr_client = _lineaje_load_gr_client()
+                            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:c3bbe445b49347f82d66ab5734bf0e9e4427ac3ddbd1047479984e61ba8762f0', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 125, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 125, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                            try:
+                                _lineaje_payload = _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json')
+                            except _gr_client.GuardrailUnavailableError:
+                                pass
+                            except PermissionError:
+                                pass
                             logger.info(
-                                "Recovered answer from the reasoning field",
+                                _lineaje_payload,
                                 extra={"model": model, "provider": data.get("provider")},
                             )
                     if content:
+                        # LINEAJE: enforce() `content` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:f94e47468454f7b574d9016a4c29e82063aca4e1a98e820468e23728be58df80'
+                        _gr_client = _lineaje_load_gr_client()
+                        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:f94e47468454f7b574d9016a4c29e82063aca4e1a98e820468e23728be58df80', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 130, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 130, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                        try:
+                            content = _gr_client.enforce(_gr_site, content, content_type='text/plain')
+                        except _gr_client.GuardrailUnavailableError:
+                            pass
+                        except PermissionError:
+                            pass
                         return content
 
                     # 200 OK but no answer text: transient provider behaviour,
@@ -134,6 +220,15 @@ class OpenAICompatibleClient:
                     empty_responses += 1
                     last_exc = None
                     if attempt < _MAX_ATTEMPTS:
+                        # LINEAJE: enforce() `attempt` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:5eabc0b12a1ab00b86889c52b676308ae6253da9741e402a484d8040dd3aada2'
+                        _gr_client = _lineaje_load_gr_client()
+                        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:5eabc0b12a1ab00b86889c52b676308ae6253da9741e402a484d8040dd3aada2', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 137, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 137, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                        try:
+                            attempt = _gr_client.enforce(_gr_site, attempt, content_type='application/json')
+                        except _gr_client.GuardrailUnavailableError:
+                            pass
+                        except PermissionError:
+                            pass
                         logger.warning(
                             "Model returned empty content — retrying (%d/%d)",
                             attempt, _MAX_ATTEMPTS,
@@ -152,6 +247,15 @@ class OpenAICompatibleClient:
                     # Retry only on transient upstream 5xx (e.g. 504 gateway
                     # timeout). 4xx are caller errors — fail fast.
                     if status is not None and 500 <= status < 600 and attempt < _MAX_ATTEMPTS:
+                        # LINEAJE: enforce() `status` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:f0bdd91c9d5b8cd54b6ede4906e40f67beb653d46e1f54c9497e073010a0b221'
+                        _gr_client = _lineaje_load_gr_client()
+                        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:f0bdd91c9d5b8cd54b6ede4906e40f67beb653d46e1f54c9497e073010a0b221', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 155, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 155, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                        try:
+                            status = _gr_client.enforce(_gr_site, status, content_type='application/json')
+                        except _gr_client.GuardrailUnavailableError:
+                            pass
+                        except PermissionError:
+                            pass
                         logger.warning(
                             "Model gateway %s — retrying (%d/%d)",
                             status, attempt, _MAX_ATTEMPTS,
@@ -163,6 +267,15 @@ class OpenAICompatibleClient:
                 except (requests.Timeout, requests.ConnectionError) as exc:
                     last_exc = exc
                     if attempt < _MAX_ATTEMPTS:
+                        # LINEAJE: enforce() `attempt` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:1a40e6203763684e2b36b717286ad396ca088de2b8b2c086d06e9d1c3c291f9c'
+                        _gr_client = _lineaje_load_gr_client()
+                        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:1a40e6203763684e2b36b717286ad396ca088de2b8b2c086d06e9d1c3c291f9c', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 166, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 166, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                        try:
+                            attempt = _gr_client.enforce(_gr_site, attempt, content_type='application/json')
+                        except _gr_client.GuardrailUnavailableError:
+                            pass
+                        except PermissionError:
+                            pass
                         logger.warning(
                             "Model gateway network error — retrying (%d/%d): %s",
                             attempt, _MAX_ATTEMPTS, exc,
@@ -176,8 +289,18 @@ class OpenAICompatibleClient:
                     break
 
             if last_exc is None and empty_responses:
+                _lineaje_payload = "Model returned empty content on every attempt"
+                # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:d86e83aa13a8c555127f1f8b59c37db2680d2f31ca6ce3eb1c6290a0a9e741e7'
+                _gr_client = _lineaje_load_gr_client()
+                _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:d86e83aa13a8c555127f1f8b59c37db2680d2f31ca6ce3eb1c6290a0a9e741e7', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 179, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 179, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                try:
+                    _lineaje_payload = _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json')
+                except _gr_client.GuardrailUnavailableError:
+                    pass
+                except PermissionError:
+                    pass
                 logger.warning(
-                    "Model returned empty content on every attempt",
+                    _lineaje_payload,
                     extra={"model": model, "attempts": empty_responses},
                 )
                 return (
@@ -185,8 +308,18 @@ class OpenAICompatibleClient:
                     "The upstream provider is flaky right now — please try again."
                 )
 
+            _lineaje_payload = "Model gateway request failed"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:e425886b6161bf62b9b855a159624bffd5f8b41afeb155d11977b4358344590a'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:e425886b6161bf62b9b855a159624bffd5f8b41afeb155d11977b4358344590a', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/llm/openai_compatible.py', 'line': 188, 'function': 'OpenAICompatibleClient.chat._post'}, 'file': 'backend/llm/openai_compatible.py', 'line': 188, 'function': '_post', 'agent_name': 'OpenAICompatibleClient', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.warning(
-                "Model gateway request failed",
+                _lineaje_payload,
                 extra={"model": model, "error": str(last_exc)},
             )
             return f"Model gateway unavailable for {model}: {last_exc}"
