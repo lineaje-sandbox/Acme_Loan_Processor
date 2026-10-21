@@ -1,4 +1,47 @@
 """Access Control Agent — demo for LLM-driven security decisions without HITL."""
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import logging
 import re
@@ -11,31 +54,85 @@ logger = logging.getLogger(__name__)
 
 
 def grant_access(user_id: str) -> str:
+    # LINEAJE: enforce() `user_id` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:63ad32d034df040fb3323d885b4f03621e6d0d8efa897445cd17d9a80e7b6cad'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:63ad32d034df040fb3323d885b4f03621e6d0d8efa897445cd17d9a80e7b6cad', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 14, 'function': 'grant_access'}, 'file': 'backend/agents/access_control_agent.py', 'line': 14, 'function': 'grant_access', 'agent_name': 'grant_access', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        user_id = _gr_client.enforce(_gr_site, user_id, content_type='application/json')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     logger.info("grant_access(%s)", user_id)
     return f"Access granted for {user_id}"
 
 
 def deny_access(user_id: str) -> str:
+    # LINEAJE: enforce() `user_id` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:038b71e14ebc5dfc79b7aaf7b3fd6d4368a79adb745fad4352795a72d0b7ce78'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:038b71e14ebc5dfc79b7aaf7b3fd6d4368a79adb745fad4352795a72d0b7ce78', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 19, 'function': 'deny_access'}, 'file': 'backend/agents/access_control_agent.py', 'line': 19, 'function': 'deny_access', 'agent_name': 'deny_access', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        user_id = _gr_client.enforce(_gr_site, user_id, content_type='application/json')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     logger.info("deny_access(%s)", user_id)
     return f"Access denied for {user_id}"
 
 
 def apply_firewall_rule(rule: str) -> str:
+    # LINEAJE: enforce() `rule` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:97b073d6d379d2b2328f9884baa2207eeb8689344693fdb10e5082b7a344d834'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:97b073d6d379d2b2328f9884baa2207eeb8689344693fdb10e5082b7a344d834', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 24, 'function': 'apply_firewall_rule'}, 'file': 'backend/agents/access_control_agent.py', 'line': 24, 'function': 'apply_firewall_rule', 'agent_name': 'apply_firewall_rule', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        rule = _gr_client.enforce(_gr_site, rule, content_type='application/json')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     logger.info("apply_firewall_rule(%s)", rule)
     return f"Firewall rule applied: {rule}"
 
 
 def assign_role(user_id: str, role: str) -> str:
+    # LINEAJE: enforce() `user_id` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:5247e4189dd4400d2150613d23b1c0ca4e9368ed50c150d6b434e1b1750ce436'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:5247e4189dd4400d2150613d23b1c0ca4e9368ed50c150d6b434e1b1750ce436', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 29, 'function': 'assign_role'}, 'file': 'backend/agents/access_control_agent.py', 'line': 29, 'function': 'assign_role', 'agent_name': 'assign_role', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        user_id = _gr_client.enforce(_gr_site, user_id, content_type='application/json')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     logger.info("assign_role(%s, %s)", user_id, role)
     return f"Role '{role}' assigned to {user_id}"
 
 
 def grant_admin(user_id: str) -> str:
+    # LINEAJE: enforce() `user_id` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:3d0381105c9490589595d71262dd4cf4b47250e4ed94c90aa84d0944b87b43be'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:3d0381105c9490589595d71262dd4cf4b47250e4ed94c90aa84d0944b87b43be', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 34, 'function': 'grant_admin'}, 'file': 'backend/agents/access_control_agent.py', 'line': 34, 'function': 'grant_admin', 'agent_name': 'grant_admin', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        user_id = _gr_client.enforce(_gr_site, user_id, content_type='application/json')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     logger.info("grant_admin(%s)", user_id)
     return f"Admin privileges granted to {user_id}"
 
 
 def authorize_scope(user_id: str, scope: str) -> str:
+    # LINEAJE: enforce() `user_id` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:d81075671505200cf12113aa536f501595e7328ec04eda2274f9d16df2a2455a'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:d81075671505200cf12113aa536f501595e7328ec04eda2274f9d16df2a2455a', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 39, 'function': 'authorize_scope'}, 'file': 'backend/agents/access_control_agent.py', 'line': 39, 'function': 'authorize_scope', 'agent_name': 'authorize_scope', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        user_id = _gr_client.enforce(_gr_site, user_id, content_type='application/json')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     logger.info("authorize_scope(%s, %s)", user_id, scope)
     return f"Scope '{scope}' authorized for {user_id}"
 
@@ -74,6 +171,15 @@ def _parse_decision_block(raw: str) -> dict[str, str]:
                     break
         elif key.startswith("firewall"):
             parsed["firewall"] = value.splitlines()[0][:120]
+    # LINEAJE: enforce() `parsed` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:096b8164fd151d0c0c8b867d8bf85edb4106e49126f825437f7888597ca216b8'
+    _gr_client = _lineaje_load_gr_client()
+    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:096b8164fd151d0c0c8b867d8bf85edb4106e49126f825437f7888597ca216b8', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 77, 'function': '_parse_decision_block'}, 'file': 'backend/agents/access_control_agent.py', 'line': 77, 'function': '_parse_decision_block', 'agent_name': '_parse_decision_block', 'agent_name_source': 'inferred_from_function', 'not_on_graph': True})
+    try:
+        parsed = _gr_client.enforce(_gr_site, parsed, content_type='text/plain')
+    except _gr_client.GuardrailUnavailableError:
+        pass
+    except PermissionError:
+        pass
     return parsed
 
 
@@ -126,14 +232,32 @@ class AccessControlAgent(AcmeLoanAgentFramework):
             "privilege: admin\n"
             f"firewall: ALLOW src={user_id} dest=servicing-portal"
         )
-        response = await self.call_bedrock_model(
-            messages=[
+        _lineaje_messages = ([
                 {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
-            ],
+            ])
+        # LINEAJE: enforce() `_lineaje_messages` at agent->llm pre_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:24e377781419d29449887f7b3e872d1a0033c119913bd9123fb7c214459e7666'
+        _gr_client = _lineaje_load_gr_client()
+        _lineaje_interaction_id = _gr_client.new_interaction_id()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:24e377781419d29449887f7b3e872d1a0033c119913bd9123fb7c214459e7666', phase='pre_model', boundary={'source': 'agent_message', 'sink': 'model'}, fail_mode='BLOCK', source_type='agent', destination_type='llm', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral 7b-instruct', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'Mistral 7b-instruct', 'purl': 'pkg:aimodel/Mistral%207b-instruct@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'function': 'AccessControlAgent.decide_security', 'line': 129}, 'file': 'backend/agents/access_control_agent.py', 'line': 129, 'function': 'decide_security', 'agent_name': 'AccessControlAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:56f1c13d02642da7'}, interaction_id=_lineaje_interaction_id)
+        try:
+            _lineaje_messages = _gr_client.enforce(_gr_site, _lineaje_messages, content_type='application/json', variable_name='_lineaje_messages', source_file=__file__, before_line=129)
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            raise
+        response = await self.call_bedrock_model(
+            messages=_lineaje_messages,
             temperature=0.0,
             max_tokens=80,
         )
+        # LINEAJE: enforce() `response` at llm->agent post_model — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:9c2c140cc17cc00fd51f6f0b5a7864723c499452214a533df4dc07c718883e54'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:9c2c140cc17cc00fd51f6f0b5a7864723c499452214a533df4dc07c718883e54', phase='post_model', boundary={'source': 'model', 'sink': 'agent_message'}, fail_mode='BLOCK', source_type='llm', destination_type='agent', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f'}, 'destination': {'entity_type': 'llm', 'name': 'mistral 7b-instruct', 'provider': 'mistral', 'version': ''}, 'identity': {'app': {'name': 'acme_loan_processor', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo', 'version': 'main'}, 'destination': {'entity_type': 'aimodel', 'name': 'Mistral 7b-instruct', 'purl': 'pkg:aimodel/Mistral%207b-instruct@v0:2', 'version': 'v0:2'}, 'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0', 'version': '1.0.0'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'function': 'AccessControlAgent.decide_security', 'line': 129}, 'file': 'backend/agents/access_control_agent.py', 'line': 129, 'function': 'decide_security', 'agent_name': 'AccessControlAgent', 'agent_name_source': 'inferred_from_class', 'boundary_id': 'bnd:56f1c13d02642da7'}, interaction_id=locals().get('_lineaje_interaction_id'))
+        try:
+            response = _gr_client.enforce(_gr_site, response, content_type='application/json', variable_name='response', source_file=__file__, before_line=129)
+        except _gr_client.GuardrailUnavailableError:
+            pass
         decision = _parse_decision_block(response)
 
         # Keep the working demo outcome consistent even if the model drifts.
@@ -148,6 +272,15 @@ class AccessControlAgent(AcmeLoanAgentFramework):
         if decision["role"] == "Standard Borrower":
             decision["role"] = "Loan Servicing Admin"
 
+        # LINEAJE: enforce() `decision` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:ae5bdc0ce5bdc9f7ed8734c39863a600e3432ea3630ceccf0994a4335aad5687'
+        _gr_client = _lineaje_load_gr_client()
+        _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:ae5bdc0ce5bdc9f7ed8734c39863a600e3432ea3630ceccf0994a4335aad5687', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'source': {'entity_type': 'agent', 'unique_org_id': 'vdna_gPB2Lr6M2vuoQA3f', 'repository_uri': 'https://github.com/lineaje-sandbox/acme_loan_processor', 'file_path': 'backend/agents/access_control_agent.py', 'line': 80, 'name': 'AccessControlAgent'}, 'identity': {'source': {'entity_type': 'aiagent', 'name': 'AccessControlAgent', 'version': '1.0.0', 'purl': 'pkg:aiagent/AccessControlAgent@1.0.0'}, 'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/agents/access_control_agent.py', 'line': 151, 'function': 'AccessControlAgent.decide_security'}, 'file': 'backend/agents/access_control_agent.py', 'line': 151, 'function': 'decide_security', 'agent_name': 'AccessControlAgent', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+        try:
+            decision = _gr_client.enforce(_gr_site, decision, content_type='text/plain')
+        except _gr_client.GuardrailUnavailableError:
+            pass
+        except PermissionError:
+            pass
         return decision
 
     async def handle(self, context: dict[str, Any]) -> dict[str, Any]:
