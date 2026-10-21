@@ -8,6 +8,49 @@ SECURITY NOTES (for Unifai demo):
 - No detection of suspicious formatting
 - No malware scanning
 """
+# Copyright (c) Lineaje, Inc. All rights reserved.
+# Lineaje UnifAI guardrail  version=2.0.0-alpha
+# Each enforce() call site below carries a SiteDescriptor with:
+#   site_id            deterministic id for this exact call site (file +
+#                      symbol + insertion point + pattern) — stable across
+#                      re-scans, used to dedupe stub insertions and to look
+#                      up this site's policy mapping at runtime.
+#   The Guardrail resolves the policies a site checks at runtime.
+def _lineaje_load_gr_client():
+    """Lineaje-added: load gr_stub_client.py without a pip dependency (missing / broken: a pass-through client)."""
+    import sys as _s, importlib.util as _ilu
+    from pathlib import Path as _P
+    n = "_lineaje_gr_stub_client"
+    if n in _s.modules: return _s.modules[n]
+    try:
+        h = _P(__file__).resolve().parent
+        _cand = next((d / "gr_stub_client.py" for d in [h, *h.parents][:8] if (d / "gr_stub_client.py").is_file()), h / "gr_stub_client.py")
+        _spec = _ilu.spec_from_file_location(n, _cand)
+        _s.modules[n] = _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m); return _m
+    except Exception:
+        _s.modules.pop(n, None)
+        return type('_lineaje_gr_unavailable', (), {'STUB_API': 999999, 'GuardrailUnavailableError': type('GuardrailUnavailableError', (PermissionError,), {}), 'SiteDescriptor': staticmethod(lambda *a, **k: None), 'new_interaction_id': staticmethod(lambda *a, **k: None), 'enforce': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_request': staticmethod(lambda _s, _p, *a, **k: _p), 'enforce_reply': staticmethod(lambda _s, _p, *a, **k: _p)})
+def _lineaje_current_model():
+    """Lineaje-added: reread the app's model setting for every request."""
+    import os as _o
+    from pathlib import Path as _P
+    _keys = ("OPENROUTER_MODEL", "LLM_MODEL", "MODEL_NAME", "MODEL_ID", "OPENAI_MODEL", "ANTHROPIC_MODEL", "BEDROCK_MODEL_ID")
+    _here = _P(__file__).resolve().parent
+    for _path in (_here / ".env", *(_p / ".env" for _p in list(_here.parents)[:8])):
+        if not _path.is_file(): continue
+        try: _lines = _path.read_text(encoding="utf-8").splitlines()
+        except OSError: continue
+        _values = {}
+        for _line in _lines:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line: continue
+            _key, _, _value = _line.partition("=")
+            if _key.strip() in _keys: _values[_key.strip()] = _value.strip().strip(chr(34)).strip(chr(39))
+        for _key in _keys:
+            if _values.get(_key): return _values[_key]
+    return next((_o.environ[_key].strip() for _key in _keys if _o.environ.get(_key, "").strip()), "")
+
 
 import io
 import logging
@@ -50,8 +93,18 @@ class PDFParser:
                 if page_text:
                     text_parts.append(page_text)
 
+                    _lineaje_payload = f"Extracted text from page {page_num + 1}"
+                    # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:030f69e4338f053bb14ca903e2e1b3f3625bfd26578723e9c4beb9f3bcd16619'
+                    _gr_client = _lineaje_load_gr_client()
+                    _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:030f69e4338f053bb14ca903e2e1b3f3625bfd26578723e9c4beb9f3bcd16619', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/pdf_parser.py', 'line': 53, 'function': 'PDFParser.extract_text'}, 'file': 'backend/file_parsers/pdf_parser.py', 'line': 53, 'function': 'extract_text', 'agent_name': 'PDFParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+                    try:
+                        _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+                    except _gr_client.GuardrailUnavailableError:
+                        pass
+                    except PermissionError:
+                        pass
                     logger.debug(
-                        f"Extracted text from page {page_num + 1}",
+                        _lineaje_payload,
                         extra={
                             "page": page_num + 1,
                             "text_length": len(page_text),
@@ -62,18 +115,47 @@ class PDFParser:
 
             full_text = '\n\n'.join(text_parts)
 
+            _lineaje_payload = "PDF text extraction complete"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:600b1ea37341313c670277977e17a7ccb205ff2ff34726153ce86059bc397b11'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:600b1ea37341313c670277977e17a7ccb205ff2ff34726153ce86059bc397b11', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/pdf_parser.py', 'line': 65, 'function': 'PDFParser.extract_text'}, 'file': 'backend/file_parsers/pdf_parser.py', 'line': 65, 'function': 'extract_text', 'agent_name': 'PDFParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             logger.info(
-                "PDF text extraction complete",
+                _lineaje_payload,
                 extra={
                     "total_pages": len(reader.pages),
                     "total_text_length": len(full_text)
                 }
             )
 
+            # LINEAJE: enforce() `full_text` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:aa652000675b9464736a0773d01f063eb2f4703e7f5a752cba444891ca497a02'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:aa652000675b9464736a0773d01f063eb2f4703e7f5a752cba444891ca497a02', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/pdf_parser.py', 'line': 73, 'function': 'PDFParser.extract_text'}, 'file': 'backend/file_parsers/pdf_parser.py', 'line': 73, 'function': 'extract_text', 'agent_name': 'PDFParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                full_text = _gr_client.enforce(_gr_site, full_text, content_type='text/plain')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             return full_text
 
         except Exception as e:
-            logger.error(f"PDF extraction error: {e}")
+            _lineaje_payload = f"PDF extraction error: {e}"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:9b0c507ca142db4eaf4bf585c4ef5874a1005bc44d7bfacda18b93f13f4807a8'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:9b0c507ca142db4eaf4bf585c4ef5874a1005bc44d7bfacda18b93f13f4807a8', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/pdf_parser.py', 'line': 76, 'function': 'PDFParser.extract_text'}, 'file': 'backend/file_parsers/pdf_parser.py', 'line': 76, 'function': 'extract_text', 'agent_name': 'PDFParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
+            logger.error(_lineaje_payload)
             return f"Error extracting PDF: {str(e)}"
 
     async def extract_metadata(self, pdf_bytes: bytes) -> dict:
@@ -93,10 +175,29 @@ class PDFParser:
                 for key in reader.metadata:
                     metadata[key] = reader.metadata[key]
 
+            # LINEAJE: enforce() `metadata` at agent->user_interface data_egress — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:afd2bd8d5fcf5651e19aee8fc78c78d60abaf811d8641bbda6b2c5525d13e9d6'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:afd2bd8d5fcf5651e19aee8fc78c78d60abaf811d8641bbda6b2c5525d13e9d6', phase='data_egress', boundary={'source': 'agent_message', 'sink': 'user_interface'}, fail_mode='BLOCK', source_type='agent', destination_type='user_interface', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/pdf_parser.py', 'line': 96, 'function': 'PDFParser.extract_metadata'}, 'file': 'backend/file_parsers/pdf_parser.py', 'line': 96, 'function': 'extract_metadata', 'agent_name': 'PDFParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                metadata = _gr_client.enforce(_gr_site, metadata, content_type='text/plain')
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
             return metadata
 
         except Exception as e:
-            logger.error(f"PDF metadata extraction error: {e}")
+            _lineaje_payload = f"PDF metadata extraction error: {e}"
+            # LINEAJE: enforce() `_lineaje_payload` at agent->log log_emit — this payload crossed a trust boundary with no runtime policy check. Mask/block; do not remove without review. site_id='site:sha256:5cefeb5e3efd1c390ef5d8b640b848144790cd4fb01d1d3bc1111e761e39c702'
+            _gr_client = _lineaje_load_gr_client()
+            _gr_site = _gr_client.SiteDescriptor(site_id='site:sha256:5cefeb5e3efd1c390ef5d8b640b848144790cd4fb01d1d3bc1111e761e39c702', phase='log_emit', boundary={'source': 'log', 'sink': 'log'}, fail_mode='BLOCK', source_type='agent', destination_type='log', project='tree', organization='', project_name='acme_loan_processor', project_version='main', project_branch='main', components={'identity': {'app': {'name': 'acme_loan_processor', 'version': 'main', 'purl': 'pkg:github/lineaje-sandbox/acme_loan_processor@main?commit-id=77a6406b056fbf32a8b702cd1d392ddb5747ff83&commit-time=2026-10-21%2004%3A27%3A39%20%2B0000&build_file=frontend/package.json&repo_strategy=single-repo'}}, 'invocation': {'file': 'backend/file_parsers/pdf_parser.py', 'line': 99, 'function': 'PDFParser.extract_metadata'}, 'file': 'backend/file_parsers/pdf_parser.py', 'line': 99, 'function': 'extract_metadata', 'agent_name': 'PDFParser', 'agent_name_source': 'inferred_from_class', 'not_on_graph': True})
+            try:
+                _lineaje_payload = await __import__('asyncio').to_thread(lambda: _gr_client.enforce(_gr_site, _lineaje_payload, content_type='application/json'))
+            except _gr_client.GuardrailUnavailableError:
+                pass
+            except PermissionError:
+                pass
+            logger.error(_lineaje_payload)
             return {}
 
     async def extract_all(self, pdf_bytes: bytes) -> dict:
